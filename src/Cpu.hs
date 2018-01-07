@@ -156,4 +156,4 @@ runCpu :: ST -> IO ST
 runCpu st = execStateT (whileM_ run) st
 
 whileM_ :: Monad m => m Bool -> m ()
-whileM_ act = act >>= \b -> when b $ whileM act
+whileM_ act = act >>= \b -> when b $ whileM_ act
