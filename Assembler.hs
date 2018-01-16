@@ -76,10 +76,10 @@ runAssembler filepath = do
 -- dump an object to bytestring object file representation
 dumpObject :: Object -> ByteString
 dumpObject (Object name' start boot len trs) =
-    let name = B.take 6 $ name' `B.append` "      "
+    let name   = B.take 6 $ name' `B.append` "      "
         header = ["H", name, formatInt 6 start, formatInt 6 len, "\n"]
         body   = intersperse "\n" . map dumpTextRecord $ trs
-        footer = ["E", formatInt 6 boot]
+        footer = ["\n", "E", formatInt 6 boot, "\n"]
     in B.concat $ header ++ body ++ footer
 
 -- dump textrecord to bytestring
