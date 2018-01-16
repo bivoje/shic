@@ -51,6 +51,7 @@ object = do
     start <- word
     len   <- word <* endOfLine
     body  <- textrc `sepBy1` endOfLine
+    endOfLine
     boot  <- "E" *> word
     option () endOfLine *> endOfInput
     return $ Object name start boot len body
