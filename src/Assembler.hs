@@ -1,18 +1,44 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Assembler (runAssembler) where
+module Assembler
+    (
+    -- * Assembler
+      assembler
+    , assemble
+
+    -- ** One Pass
+    , onePass
+    , oneStep
+    , addLabel
+
+    -- ** Two Pass
+    , twoPass
+    , collectText
+    , twoStep
+    , translatePragma
+    , translateCommand
+    , translateTarget
+    , resolveTarget
+    , resolveSymbol
+
+    -- * Dumping
+    , dumpObject
+    , dumpTextRecord
+    , formatInt
+
+    ) where
+
 
 import Prelude hiding (Word)
 
 import System.IO
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as H
 import Data.Bits
 import Data.Monoid
 import Data.List (intersperse, dropWhileEnd)
-import Data.Maybe (fromJust, isNothing)
+import Data.Maybe (isNothing)
 import Control.Exception
 import Control.Monad.State
 import Control.Lens
@@ -21,59 +47,41 @@ import Data.Attoparsec.ByteString (parseOnly)
 import Numeric (showHex)
 
 import BasicTypes
-import Cpu.Types (Opcode(..))
+import Cpu.Types (Opcode(..), getOp)
 import Loader.Types
 import Loader.Parser (parseHandler)
 import Assembler.Types
-import Assembler.Parser
+import Assembler.Parser as AP
 
 
-optbl :: HashMap Opcode Byte
-optbl = H.fromList
-    [ (LDA  , 0x00)
-    , (LDX  , 0x04)
-    , (LDL  , 0x08)
-    , (STA  , 0x0C)
-    , (STX  , 0x10)
-    , (STL  , 0x14)
-    , (ADD  , 0x18)
-    , (SUB  , 0x1C)
-    , (MUL  , 0x20)
-    , (DIV  , 0x24)
-    , (COMP , 0x28)
-    , (TIX  , 0x2C)
-    , (JEQ  , 0x30)
-    , (JGT  , 0x34)
-    , (JLT  , 0x38)
-    , (J    , 0x3C)
-    , (AND  , 0x40)
-    , (OR   , 0x44)
-    , (JSUB , 0x48)
-    , (RSUB , 0x4C)
-    , (LDCH , 0x50)
-    , (STCH , 0x54)
-    , (RD   , 0xD8)
-    , (WD   , 0xDC)
-    , (TD   , 0xE0)
-    , (STSW , 0xE8)
-    ]
+----------------------------------------------------------------------
+-- * Assembler
 
-getOp :: Opcode -> Byte
-getOp op = fromJust $ H.lookup op optbl
-
-
-runAssembler :: FilePath -> IO ()
-runAssembler filepath = do
-    contents <- B.readFile filepath
-    let outfile = dropWhileEnd (/='.') filepath ++ "obj"
+-- | 2-Pass assembler.
+-- Gets SIC source code and returns SIC object code
+assembler :: ByteString -> ByteString
+assembler contents =
     let ls = parseHandler assembly contents
-    let objxt = dumpObject . assemble $ ls
-    B.writeFile outfile objxt
+     in dumpObject $ assemble ls
+
+-- | Perform 2-Pass SIC assemble task. If the size of executable is
+-- too big, @assemble@ throws ProgramTooBig exception.
+assemble :: Assembly -> Object
+assemble (Assembly name start' boot' ls) =
+    let st@(ST size symtbl) = onePass start' ls
+        start = conv start'
+        boot = conv $ evalState (resolveTarget boot') st
+        ts = reverse $ twoPass start' symtbl ls
+     in Object name start boot (size - start') ts
+     where conv x = case lowBitsMaybe 24 x of
+            Just x -> x
+            Nothing -> throw ProgramTooBig
 
 
--- Dump
+----------------------------------------------------------------------
+-- * Dumping
 
--- dump an object to bytestring object file representation
+-- | Dump an 'Object' to bytestring object file representation.
 dumpObject :: Object -> ByteString
 dumpObject (Object name' start boot len trs) =
     let name = B.take 6 $ name' `B.append` "      "
@@ -82,7 +90,7 @@ dumpObject (Object name' start boot len trs) =
         footer = ["E", formatInt 6 boot]
     in B.concat $ header ++ body ++ footer
 
--- dump textrecord to bytestring
+-- | Dump 'TextRecord' to bytestring.
 dumpTextRecord  :: TextRecord -> ByteString
 dumpTextRecord (TextRecord st bs)
     | length bs > 30 = undefined -- invalid, fault of collectText
@@ -92,7 +100,11 @@ dumpTextRecord (TextRecord st bs) = B.concat $
     , formatInt 2 (length bs)
     ] ++ map (formatInt 2) bs
 
--- format Int to fixed width (n) hex representation
+-- | Format Int to fixed width (n) hex representation.
+--
+-- @
+-- formatInt 6 0x1234 == "001234"
+-- @
 formatInt :: Bits a => Int -> a -> ByteString
 formatInt n = B.pack . map step . dcpB n 4
     where step w | 0  <= w && w < 10 = w + 48
@@ -100,44 +112,33 @@ formatInt n = B.pack . map step . dcpB n 4
                  | otherwise = undefined
 
 
--- Assembler
+----------------------------------------------------------------------
+-- ** Two Pass
 
--- assemble through one and two pass
-assemble :: Assembly -> Object
-assemble (Assembly name start' boot' ls) =
-    let start = conv start'
-        ta = evalState (resolveTarget boot') st
-        boot = conv ta
-        st@(ST size symtbl) = onePass start' ls
-        ts = reverse $ twoPass start' symtbl ls
-     in Object name start boot (size - start') ts
-     where conv x = case lowBitsMaybe 24 x of
-            Just x -> x
-            Nothing -> throw ProgramTooBig
-
--- what should size be?
-
-
--- Two Pass
-
--- returns textrecord in reversed order
+-- | @twoPass startAddr symtbl ls@ returns collection of textrecord in
+-- reversed order. @symtbl@ should idealy be from 'onePass'.
 twoPass :: LOCCTR -> SymTbl -> [Line] -> [TextRecord]
 twoPass start symtbl ls =
     let rs = evalState (forM ls twoStep) (ST start symtbl)
      in foldl collectText [TextRecord (lowBits 24 start) []] rs
 
--- collect Result to list of text records
+-- | @collectText ts r@ appends @r@ to @ts@. Contextually,
+-- @foldl collectText _ rs@ will concat objectcodes in rs, except some
+-- cases. It splits text record when 1. allocation or 2. textrecord
+-- is too long. @collectText@ ignores allocation of 0 length so that
+-- @Allocate 0@ is used to manually split @TextRecord@ in two-step
+-- process.
 collectText :: [TextRecord] -> Result -> [TextRecord]
 -- collect text should be called with at least one (empty) TextRecord
 collectText [] _ = undefined
--- `object code` will be concat'ed to textrecord
+-- @object code@ will be concat'ed to textrecord
 collectText tts@((TextRecord st ws):ts) (ObjectCode bs)
     | length (bs ++ ws) <= 30 = TextRecord st (ws ++ bs) : ts
     | otherwise = let start = fromIntegral st + length ws
                   in case lowBitsMaybe 24 start of
                       Just start' -> TextRecord start' bs : tts
                       Nothing -> throw ProgramTooBig
--- `allocate` will break current and append new text record
+-- 'Allocate' will break current and append new text record
 collectText tts                         (Allocate 0) = tts
 collectText tts@((TextRecord st ws):ts) (Allocate n) =
     let start = fromIntegral st + length ws + n
@@ -146,7 +147,7 @@ collectText tts@((TextRecord st ws):ts) (Allocate n) =
         Just start' -> TextRecord start' [] : appendTo
         Nothing -> throw ProgramTooBig
 
--- translate a line
+-- | Handles each line during two-pass. Translate and increase LOCCTR.
 twoStep :: Line -> State ST Result
 twoStep line = do
     r <- go line
@@ -157,7 +158,9 @@ twoStep line = do
           locinc (ObjectCode bs) = length bs
           locinc (Allocate l) = l
 
--- translate pragma
+-- | @translatePragma pragma@ generates bytes or allocates space in
+-- executable depending on type of @pragma@. @translatePragma@ does
+-- not modify state, only reads it.
 translatePragma :: Pragma -> Result
 translatePragma (BYTE _ b  ) = ObjectCode $ dcpB 1 8 b
 translatePragma (WORD _ b  ) = ObjectCode $ dcpB 3 8 b
@@ -169,27 +172,36 @@ allocate :: Int -> Result
 allocate len | len < 0 = throw $ InvalidReservation len
              | otherwise = Allocate len
 
--- translate command
+-- | @translateCommand opcode oprn@ constructs object code for
+-- instruction @label opcode oprn@ then split it into bytes.
+-- @translateCommand@ does not modify state, only reads it.
 translateCommand :: Opcode -> Operand -> State ST Result
 translateCommand  op (Operand tar x) =
     let code = (`shiftL` 16) . lowBits 8 $ getOp op
         sx = if x then (`setBit` 15) else id
-     in do ta <- translateTA tar
+     in do ta <- translateTarget tar
            return . ObjectCode . dcpB 3 8 . sx $ code .|. ta
 
--- translate Target to address
-translateTA :: Target -> State ST Word
-translateTA tar = do
+-- | @translateTarget target@ translates Target to address.
+-- It barely calls 'resolveTarget' and check if address is valid
+-- (address < 2 ^ 15). If not, throws 'InvalidAddressing' exception.
+-- @translateTarget@ does not modify state, only reads it.
+translateTarget :: Target -> State ST Word
+translateTarget tar = do
     ta <- resolveTarget tar
     case lowBitsMaybe 15 ta of
         Just x  -> return x
         Nothing -> throw $ InvalidAddressing tar
 
+-- | @resolveTarget target@ resolve address from @target@.
+-- @resolveTarget@ does not modify state, only reads it.
 resolveTarget :: Target -> State ST Int
 resolveTarget (Symbol symbol) = resolveSymbol symbol
 resolveTarget (Value val) = return val
 
--- resolve address from symbol
+-- | @resolveSymbol label@ resolves address from @label@. It throws
+-- 'UnknownSymbol' exception when @label@ does not apear in symbol
+-- table. @resolvesymbol@ does not modify state, only reads it.
 resolveSymbol :: ByteString -> State ST Int
 resolveSymbol symbol = do
     symtbl <- gets _sym
@@ -198,13 +210,16 @@ resolveSymbol symbol = do
         Nothing -> throw $ UnknownSymbol symbol
 
 
--- One Pass
+-----------------------------------------------------------------------
+-- ** One Pass
 
--- run one pass assembler
+-- | @onePass loc ls@ runs one-pass assembler through ls,
+-- produces size of the excutable and symbol table.
 onePass :: LOCCTR -> [Line] -> ST
 onePass start ls = execState (forM_ ls oneStep) (ST start H.empty)
 
--- handle a line of assembly
+-- | @oneStep line@ handle a line of assembly.
+-- It adds label to symbol table and increase LOCCTR for each line.
 oneStep :: Line -> State ST ()
 oneStep (Command label _ _) =
     addLabel label >> (modify $ over loc (+3))
@@ -217,7 +232,8 @@ oneStep (Pragma (RESB label len)) =
 oneStep (Pragma (RESW label len)) =
     addLabel label >> (modify $ over loc (+(3*len)))
 
--- add label to SymTbl unless already seen
+-- | Add label to 'SymTbl' unless the label has already been seen,
+-- in which case @addLable@ throws 'DuplicatedSymbol' exception.
 addLabel :: ByteString -> State ST ()
 addLabel "" = return ()
 addLabel label = do

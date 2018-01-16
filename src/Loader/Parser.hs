@@ -1,6 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Loader.Parser (object, parseHandler) where
 
+module Loader.Parser
+    (
+    -- * Parsers
+      object
+    , textrc
+    , word
+    , byte
+
+    -- * Helpers
+    , hexadecimal'
+    , parseHandler
+    ) where
 
 import Data.Attoparsec.ByteString as P
 import Data.Attoparsec.ByteString.Char8 (char, endOfLine)
@@ -15,6 +26,9 @@ import Data.List (foldl')
 import Loader.Types
 
 
+-- | @parseHandler p content@ runs @p@ over @content@. If @p@ fails,
+-- it throws 'ParseError' exception with the line number where
+-- the parser failed.
 parseHandler :: Parser a -> ByteString -> a
 parseHandler p contents = case parseDone p contents of
     Done "" obj    -> obj
@@ -30,7 +44,7 @@ parseHandler p contents = case parseDone p contents of
     where parseDone p c = feed (parse p c) B.empty
 
 
--- Object body never be empty
+-- | Match SIC object format. Parsed 'Object' body never be empty
 object :: Parser Object
 object = do
     name  <- "H" *> P.take 6
@@ -42,7 +56,8 @@ object = do
     return $ Object name start boot len body
   <?> "newline mismatch"
 
--- TextRecord contents never be empty
+-- | Match a line of text records in SIC object format.
+-- Parsed 'TextRecord' contents never be empty.
 textrc :: Parser TextRecord
 textrc = do
    char 'T'
@@ -52,13 +67,24 @@ textrc = do
            -- ensures size of textrecord
    return $ TextRecord start objs
 
+-- | Match hexrepresentation of a word which is in 6 characters long.
+--
+-- @
+-- word = hexadecimal' 6
+-- @
 word :: (Integral a, Bits a) => Parser a
 word = hexadecimal' 6
 
+-- | Match hexrepresentation of a byte which is in 2 characters long.
+--
+-- @
+-- byte = hexadecimal' 2
+-- @
 byte :: (Integral a, Bits a) => Parser a
 byte = hexadecimal' 2
 
--- modification of hexadecimal in Data.Attoparsec.ByteString.Char8
+-- | Modification of hexadecimal in Data.Attoparsec.ByteString.Char8.
+-- @hexadecimal' n@ accepts exactly @n@ characters from stream.
 hexadecimal' :: (Integral a, Bits a) => Int -> Parser a
 hexadecimal' n =
     let p = count n (satisfy isHexDigit)

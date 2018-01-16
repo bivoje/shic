@@ -1,12 +1,30 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Cpu where
+-- TODO
+
+-- |
+--
+-- RISC CPU usually have pipelining.
+--
+-- IF ID EX MEM WB
+--
+-- in this SIC implementation we use
+--
+-- IF ID and EX (includes MEM and WB)
+--
+
+module Cpu
+    ( runCpu
+    , run
+    , execute
+    , decode
+    , fetch
+    ) where
 
 
 import Prelude hiding (Word)
 
 import Data.Bits
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict as H
 import Control.Exception
 import Control.Monad.State
@@ -18,70 +36,25 @@ import Control.Monad (when)
 import Cpu.Types
 
 
-optbl :: HashMap Byte Opcode
-optbl = H.fromList
-    [ (0x00, LDA  )
-    , (0x04, LDX  )
-    , (0x08, LDL  )
-    , (0x0C, STA  )
-    , (0x10, STX  )
-    , (0x14, STL  )
-    , (0x18, ADD  )
-    , (0x1C, SUB  )
-    , (0x20, MUL  )
-    , (0x24, DIV  )
-    , (0x28, COMP )
-    , (0x2C, TIX  )
-    , (0x30, JEQ  )
-    , (0x34, JGT  )
-    , (0x38, JLT  )
-    , (0x3C, J    )
-    , (0x40, AND  )
-    , (0x44, OR   )
-    , (0x48, JSUB )
-    , (0x4C, RSUB )
-    , (0x50, LDCH )
-    , (0x54, STCH )
-    , (0xD8, RD   )
-    , (0xDC, WD   )
-    , (0xE0, TD   )
-    , (0xE8, STSW )
-    ]
-
+-- | Fetch an instruction bytecode from memory.
 fetch :: (MonadState ST (t IO), MonadTrans t) => t IO Word
 fetch = do
     pcv <- gets $ viewR pc
     gets $ getWord pcv . view memory
 
+-- | Decode given instruction bytecode.
 decode :: Word -> (Opcode, Bool, Address)
 decode word =
     let x = (1 ==) $ (word `shiftL` 15) .&. 0x1
         ta = fromIntegral $ word .&. 0x7FFF
-    in case flip H.lookup optbl $ lowBits 8 (word `shiftR` 16) of
+    in case fromOp $ lowBits 8 (word `shiftR` 16) of
         Just opcode -> (opcode, x, ta)
         Nothing -> throw $ InvalidOpcode word
 
+-- | Execute given instruction.
 execute :: (MonadState ST (t IO), MonadTrans t)
         => Opcode -> Address -> t IO ()
 execute opcode addr = case opcode of
-    RD -> do
-        d   <- gets $ getByte addr . view memory
-        dev <- gets $ ($ d) . view device
-        ch  <- lift $ readByte dev
-        let wch = lowBits 8 ch
-        modify $ setR a wch
-    WD -> do
-        d   <- gets $ getByte addr . view memory
-        dev <- gets $ ($ d) . view device
-        wch <- gets $ viewR a
-        let ch = lowBits 8 wch
-        lift $ writeByte dev ch
-    TD -> modify $ setR sw 0x80 -- always good to go
-    _  -> execute' opcode addr
-
-execute' :: (MonadState ST (t IO), MonadTrans t)
-         => Opcode -> Address -> t IO ()
-execute' opcode addr = case opcode of
     LDA  -> loadR a
     LDX  -> loadR x
     LDL  -> loadR l
@@ -113,32 +86,46 @@ execute' opcode addr = case opcode of
         let ch = lowBits 8 wch
         modify $ over memory (setByte addr ch)
     STSW -> storeR sw
+    RD -> do
+        d   <- gets $ getByte addr . view memory
+        dev <- gets $ ($ d) . view device
+        ch  <- lift $ readByte dev
+        let wch = lowBits 8 ch
+        modify $ setR a wch
+    WD -> do
+        d   <- gets $ getByte addr . view memory
+        dev <- gets $ ($ d) . view device
+        wch <- gets $ viewR a
+        let ch = lowBits 8 wch
+        lift $ writeByte dev ch
+    TD -> modify $ setR sw 0x80 -- always good to go
   where
-      getM = gets $ getWord addr . view memory
-      storeM word = modify $ over memory (setWord addr word)
-      getR reg = gets $ viewR reg
-      putR reg word = modify $ setR reg word
-      loadR reg = getM >>= putR reg
-      storeR reg = getR reg >>= storeM
-      moveR r1 r2 = getR r1 >>= putR r2
-      modifyA f = getM >>= \w -> modify $ overR a (f w)
-      conditionCode stat = case stat of
-          LT -> 0x40
-          EQ -> 0x00
-          GT -> 0x80
-      ordering code = case code of
-          0x40 -> LT
-          0x00 -> EQ
-          0x80 -> GT
-      comp x y = do
-          xVal <- x
-          yVal <- y
-          putR sw . conditionCode $ xVal `compare` yVal
-      jumpIf ord = do
-          stat <- ordering <$> getR sw
-          when (stat == ord) $ modify (setR pc addr)
+    getM = gets $ getWord addr . view memory
+    storeM word = modify $ over memory (setWord addr word)
+    getR reg = gets $ viewR reg
+    putR reg word = modify $ setR reg word
+    loadR reg = getM >>= putR reg
+    storeR reg = getR reg >>= storeM
+    moveR r1 r2 = getR r1 >>= putR r2
+    modifyA f = getM >>= \w -> modify $ overR a (f w)
+    conditionCode stat = case stat of
+        LT -> 0x40
+        EQ -> 0x00
+        GT -> 0x80
+    ordering code = case code of
+        0x40 -> LT
+        0x00 -> EQ
+        0x80 -> GT
+    comp x y = do
+        xVal <- x
+        yVal <- y
+        putR sw . conditionCode $ xVal `compare` yVal
+    jumpIf ord = do
+        stat <- ordering <$> getR sw
+        when (stat == ord) $ modify (setR pc addr)
 
--- returns False if halt
+-- | Perform a instruction pipeline (1 cycle).
+-- Return @False@ if halt.
 run :: (MonadState ST (t IO), MonadTrans t)
     => t IO Bool
 run = do
@@ -152,8 +139,10 @@ run = do
      else execute opcode ta >> return True
     where haltcode = 0x3C0000 --0x3F2FFD
 
+-- | Run Cpu with given state until it halts.
 runCpu :: ST -> IO ST
 runCpu st = execStateT (whileM_ run) st
 
+-- Reimplementation of whileM of Control.Monad.Extra in extra package.
 whileM_ :: Monad m => m Bool -> m ()
 whileM_ act = act >>= \b -> when b $ whileM_ act
