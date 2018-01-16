@@ -103,7 +103,7 @@ instance Exception InvalidAddress
 -- Cpu data types
 
 -- | Memory for SIC machine.
-newtype Memory = Memory (Vector Byte) deriving Show
+newtype Memory = Memory (Vector Byte) deriving (Show, Eq)
 
 -- | Register in SIC machine.
 data Register = Register
@@ -118,7 +118,7 @@ data Register = Register
     , _t :: Word    -- 5
     , _f :: FWord   -- 6
     -}
-    } deriving Show
+    } deriving (Show, Eq)
 
 -- | In-N-Out device for SIC machine.
 data Device = Device Handle Handle

@@ -67,3 +67,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - shic
+    - hspec
