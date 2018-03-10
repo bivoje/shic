@@ -17,7 +17,6 @@ module Assembler
     , twoStep
     , translatePragma
     , translateCommand
-    , translateTarget
     , resolveTarget
     , resolveSymbol
 
@@ -72,7 +71,7 @@ assemble (Assembly name start' boot' ls) =
         start = conv start'
         boot = conv $ evalState (resolveTarget boot') st
         ts = reverse $ twoPass start' symtbl ls
-     in Object name start boot (size - start') ts
+     in Object name start boot (lowBits 24 $ size - start') ts
      where conv x = case lowBitsMaybe 24 x of
             Just x -> x
             Nothing -> throw ProgramTooBig
@@ -92,8 +91,6 @@ dumpObject (Object name' start boot len trs) =
 
 -- | Dump 'TextRecord' to bytestring.
 dumpTextRecord  :: TextRecord -> ByteString
-dumpTextRecord (TextRecord st bs)
-    | length bs > 30 = undefined -- invalid, fault of collectText
 dumpTextRecord (TextRecord st bs) = B.concat $
     [ "T"
     , formatInt 6 st
@@ -124,7 +121,7 @@ twoPass start symtbl ls =
 
 -- | @collectText ts r@ appends @r@ to @ts@. Contextually,
 -- @foldl collectText _ rs@ will concat objectcodes in rs, except some
--- cases. It splits text record when 1. allocation or 2. textrecord
+-- cases. It splits text record when 1) allocation occurs or 2) textrecord
 -- is too long. @collectText@ ignores allocation of 0 length so that
 -- @Allocate 0@ is used to manually split @TextRecord@ in two-step
 -- process.
@@ -141,7 +138,7 @@ collectText tts@((TextRecord st ws):ts) (ObjectCode bs)
 -- 'Allocate' will break current and append new text record
 collectText tts                         (Allocate 0) = tts
 collectText tts@((TextRecord st ws):ts) (Allocate n) =
-    let start = fromIntegral st + length ws + n
+    let start = st + lowBits 24 (length ws) + n
         appendTo = if null ws then ts else tts
     in case lowBitsMaybe 24 start of
         Just start' -> TextRecord start' [] : appendTo
@@ -150,17 +147,20 @@ collectText tts@((TextRecord st ws):ts) (Allocate n) =
 -- | Handles each line during two-pass. Translate and increase LOCCTR.
 twoStep :: Line -> State ST Result
 twoStep line = do
-    r <- go line
-    modify $ over loc (+ locinc r)
+    r <- trans line
+    modify $ over loc (locinc r)
     return r
-    where go (Command _ opc op) = translateCommand opc op
-          go (Pragma pragma) = return $ translatePragma pragma
-          locinc (ObjectCode bs) = length bs
-          locinc (Allocate l) = l
+    where trans (Command _ opc op) = translateCommand opc op
+          trans (Pragma pragma) = return $ translatePragma pragma
+          locinc r lc = let inc = width r + lowBits 24 lc
+              in case lowBitsMaybe 24 inc of
+                  Just nlc -> nlc
+                  Nothing -> throw $ AddressTooLarge inc
+          width (ObjectCode bs) = lowBits 24 $ length bs
+          width (Allocate l) = l
 
 -- | @translatePragma pragma@ generates bytes or allocates space in
--- executable depending on type of @pragma@. @translatePragma@ does
--- not modify state, only reads it.
+-- executable depending on type of @pragma@.
 translatePragma :: Pragma -> Result
 translatePragma (BYTE _ b  ) = ObjectCode $ dcpB 1 8 b
 translatePragma (WORD _ b  ) = ObjectCode $ dcpB 3 8 b
@@ -168,7 +168,7 @@ translatePragma (RESB _ len) = allocate len
 translatePragma (RESW _ len) = allocate (len*3)
 
 -- error prone allocation
-allocate :: Int -> Result
+allocate :: Length -> Result
 allocate len | len < 0 = throw $ InvalidReservation len
              | otherwise = Allocate len
 
@@ -179,30 +179,19 @@ translateCommand :: Opcode -> Operand -> State ST Result
 translateCommand  op (Operand tar x) =
     let code = (`shiftL` 16) . lowBits 8 $ getOp op
         sx = if x then (`setBit` 15) else id
-     in do ta <- translateTarget tar
+     in do ta <- resolveTarget tar
            return . ObjectCode . dcpB 3 8 . sx $ code .|. ta
-
--- | @translateTarget target@ translates Target to address.
--- It barely calls 'resolveTarget' and check if address is valid
--- (address < 2 ^ 15). If not, throws 'InvalidAddressing' exception.
--- @translateTarget@ does not modify state, only reads it.
-translateTarget :: Target -> State ST Word
-translateTarget tar = do
-    ta <- resolveTarget tar
-    case lowBitsMaybe 15 ta of
-        Just x  -> return x
-        Nothing -> throw $ InvalidAddressing tar
 
 -- | @resolveTarget target@ resolve address from @target@.
 -- @resolveTarget@ does not modify state, only reads it.
-resolveTarget :: Target -> State ST Int
+resolveTarget :: Target -> State ST Address
 resolveTarget (Symbol symbol) = resolveSymbol symbol
-resolveTarget (Value val) = return val
+resolveTarget (Value val) = return $ lowBits 24 val
 
 -- | @resolveSymbol label@ resolves address from @label@. It throws
 -- 'UnknownSymbol' exception when @label@ does not apear in symbol
 -- table. @resolvesymbol@ does not modify state, only reads it.
-resolveSymbol :: ByteString -> State ST Int
+resolveSymbol :: Symbol -> State ST Address
 resolveSymbol symbol = do
     symtbl <- gets _sym
     return $ case H.lookup symbol symtbl of
@@ -228,13 +217,13 @@ oneStep (Pragma (BYTE label _)) =
 oneStep (Pragma (WORD label _)) =
     addLabel label >> (modify $ over loc (+3))
 oneStep (Pragma (RESB label len)) =
-    addLabel label >> (modify $ over loc (+len))
+    addLabel label >> (modify $ over loc (+ lowBits 24 len))
 oneStep (Pragma (RESW label len)) =
-    addLabel label >> (modify $ over loc (+(3*len)))
+    addLabel label >> (modify $ over loc (+ 3* lowBits 24 len))
 
 -- | Add label to 'SymTbl' unless the label has already been seen,
 -- in which case @addLable@ throws 'DuplicatedSymbol' exception.
-addLabel :: ByteString -> State ST ()
+addLabel :: Symbol -> State ST ()
 addLabel "" = return ()
 addLabel label = do
     locctr <- gets _loc

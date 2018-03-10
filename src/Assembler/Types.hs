@@ -2,6 +2,7 @@
 
 module Assembler.Types where
 
+import Prelude hiding (Word)
 
 import Control.Exception
 import Control.Lens
@@ -15,23 +16,27 @@ import Cpu.Types (Opcode)
 ----------------------------------------------------------------------
 -- * Parser Types
 
-
-data Assembly = Assembly ByteString Int Target [Line] deriving Show
---             name       start   boot   body
+data Assembly = Assembly ByteString Address Target [Line] deriving Show
+--                       name       start   boot   body
 
 data Line
-    = Command ByteString Opcode Operand
+    = Command Symbol Opcode Operand
     | Pragma Pragma
     deriving Show
 
 data Pragma
-    = BYTE ByteString Int
-    | WORD ByteString Int
-    | RESB ByteString Int
-    | RESW ByteString Int
+    = BYTE Symbol Byte
+    | WORD Symbol Word
+    | RESB Symbol Length
+    | RESW Symbol Length
     deriving Show
 
 data Operand = Operand Target Bool deriving Show
+
+data Target
+    = Symbol Symbol
+    | Value Address
+    deriving (Show, Eq)
 
 
 ----------------------------------------------------------------------
@@ -39,21 +44,17 @@ data Operand = Operand Target Bool deriving Show
 
 data Result
     = ObjectCode [Byte]
-    | Allocate Int
+    | Allocate Length
     deriving Show
 
-data Target
-    = Symbol ByteString
-    | Value Int
-    deriving Show
-
-type LOCCTR = Int
-type SymTbl = HashMap ByteString LOCCTR
+type LOCCTR = Word
+type Symbol = ByteString
+type SymTbl = HashMap Symbol LOCCTR
 
 data ST = ST
     { _loc :: LOCCTR
     , _sym :: SymTbl
-    } deriving Show
+    } deriving (Show, Eq)
 
 makeLenses ''ST
 
@@ -61,17 +62,17 @@ makeLenses ''ST
 ----------------------------------------------------------------------
 -- * Exceptions
 
-data DuplicatedSymbol = DuplicatedSymbol ByteString deriving Show
+data DuplicatedSymbol = DuplicatedSymbol Symbol deriving (Show, Eq)
 instance Exception DuplicatedSymbol
 
-data ProgramTooBig = ProgramTooBig deriving Show
+data ProgramTooBig = ProgramTooBig deriving (Show, Eq)
 instance Exception ProgramTooBig
 
-data InvalidReservation = InvalidReservation Int deriving Show
+data InvalidReservation = InvalidReservation Length deriving (Show, Eq)
 instance Exception InvalidReservation
 
-data UnknownSymbol = UnknownSymbol ByteString deriving Show
+data UnknownSymbol = UnknownSymbol Symbol deriving (Show, Eq)
 instance Exception UnknownSymbol
 
-data InvalidAddressing = InvalidAddressing Target deriving Show
-instance Exception InvalidAddressing
+data AddressTooLarge = AddressTooLarge Length deriving (Show, Eq)
+instance Exception AddressTooLarge

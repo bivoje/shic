@@ -10,12 +10,15 @@
 
 module Assembler.Parser where
 
+import Prelude hiding (Word)
+
 import Data.Attoparsec.ByteString as P hiding (satisfy)
 import Data.Attoparsec.ByteString.Char8 (
         satisfy, char, decimal, hexadecimal, endOfLine, isEndOfLine,
         skipSpace
     )
 
+import Data.Bits (Bits)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B hiding (elem)
 import qualified Data.ByteString.Char8 as B8
@@ -23,8 +26,9 @@ import Data.Maybe (isJust, fromMaybe)
 import Control.Applicative ((<|>))
 import Control.Monad (void, join)
 
-import Cpu.Types (Opcode)
+import BasicTypes
 import Assembler.Types
+import Cpu.Types (Opcode)
 
 -- TODO use skipSpace in the palce of "\t"
 -- TODO use scan on counting char (symbolName)
@@ -32,6 +36,23 @@ import Assembler.Types
 
 ----------------------------------------------------------------------
 -- * Parser Helpers
+
+-- | @checkMaybe f p@ tries to apply action p, and if the result
+-- satisfies @f@ it returns the result wraped in @Just@. Otherwise
+-- returns @Nothing@.
+checkMaybe :: (a -> Bool) -> Parser a -> Parser (Maybe a)
+checkMaybe f = fmap $ partial f
+    where partial :: (a -> Bool) -> (a -> Maybe a)
+          partial f a = if f a then Just a else Nothing
+          -- replicates the one of `monadplus` package
+
+-- | A combinator that enables complex validity check on a token parser.
+check :: (a -> Bool) -> Parser a -> Parser a
+check f p = check' f p "token matching constraint"
+
+-- | Same as 'check', only that it enables specifying failure message .
+check' :: (a -> Bool) -> Parser a -> String -> Parser a
+check' f p dscrb = p >>= \a -> if f a then return a else fail dscrb
 
 -- | Reimplementation of 'Text.Parsec.optionMaybe',
 -- because @Data.Attoparsec.ByteString@ does not implement it.
@@ -43,14 +64,14 @@ optionMaybe p = option Nothing $ Just <$> p
 optionBool :: Parser a -> Parser Bool
 optionBool p = option False $ const True <$> p
 
--- | Match either a 'hexNumber' or a 'decimal'
-number :: Parser Int
+-- | Match either a 'hexNumber' or a 'decimal'.
+number :: (Integral a, Bits a) => Parser a
 number = decimal <|> hexNumber
 
 -- | Match a number in SIC/XE-hexadecimal format,
 -- where preceeding @X'@ and following @'@ is neccessary
 -- as in @X'07F3AD1'@.
-hexNumber :: Parser Int
+hexNumber :: (Integral a, Bits a) => Parser a
 hexNumber = "X'" *> hexadecimal <* "'"
 
 
@@ -227,11 +248,11 @@ assembly = do
 -- Match the first line of assembly code, which contains "START".
 -- The First line can optionally indicate name of the program and
 -- address for the program to be loaded in memory.
-startLine :: Parser (ByteString, Int)
+startLine :: Parser (ByteString, Address)
 startLine = do
     name <- option "" symbolName
     "\tSTART"
-    start <- option 0 ("\t" >> decimal)
+    start <- option 0 ("\t" >> address)
     return (name, start)
 
 -- | Second of start-body-end trilogy.
@@ -254,7 +275,7 @@ line = (actual <* clearLine) <?> "line"
     where actual = (Pragma <$> pragma) <|> command
 
 ----------------------------------------------------------------------
--- ** Flush comments
+-- ** Ignore Comments
 
 -- | comment line must start with . character
 -- (no space allowed excepted the above line is also comment)
@@ -276,8 +297,8 @@ pragma = do
     str <- P.takeWhile1 (/= 9) -- tab character
     "\t"
     case str of
-        "BYTE" -> BYTE label <$> number
-        "WORD" -> WORD label <$> number
+        "BYTE" -> BYTE label <$> byte
+        "WORD" -> WORD label <$> word
         "RESB" -> RESB label <$> number
         "RESW" -> RESW label <$> number
         _ -> fail "directive"
@@ -309,17 +330,25 @@ operand :: Parser Operand
 operand = Operand <$> target <*> (optionBool ",X")
 
 -- | Match a target of a instruction,
--- which is 'decimal' or a 'symbolName'.
+-- which is 'address' or a 'symbolName'.
 target :: Parser Target
-target = (Value <$> decimal) <|> (Symbol <$> symbolName)
+target = (Value <$> address) <|> (Symbol <$> symbolName)
 
 -- | Match a symbole name in SIC/XE.
--- Symbol name in SIC/XE consists 6 or less alphabets.
--- If given sequence of alphabets is too long,
--- parser fails with "too long symbolName".
-symbolName :: Parser ByteString
-symbolName = do
-    str <- P.takeWhile $ inClass "a-zA-Z"
-    if B.length str <= 6 -- TODO this is inefficient
-     then return str
-     else fail "too long symbolName"
+-- Symbol name in SIC/XE consists 6 or less alphabets
+-- (upper or lower). If given sequence of alphabets is too long,
+-- parser fails with "too long symbol name".
+symbolName :: Parser Symbol
+symbolName =
+    let p = P.takeWhile $ inClass "a-zA-Z"
+    in check' (\bs -> B.length bs <= 6) p "too long symbol name"
+-- FIXME, what if empty?
+
+byte :: (Integral a, Bits a) => Parser a
+byte = check' (<= 0xFF) number "too large byte"
+
+word :: (Integral a, Bits a) => Parser a
+word = check' (<= 0xFFFFFF) number "too large word"
+
+address :: (Integral a, Bits a) => Parser a
+address = check' (<= 0x7FFF) number "too large address"

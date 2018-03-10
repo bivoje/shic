@@ -11,14 +11,16 @@ module Loader.Parser
     -- * Helpers
     , hexadecimal'
     , parseHandler
+    , parseDone
     ) where
 
 import Data.Attoparsec.ByteString as P
 import Data.Attoparsec.ByteString.Char8 (char, endOfLine)
 import Data.Bits
+import Data.Char (isSpace)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Char8 as B8
 
 import Control.Exception (throw)
 import Data.List (foldl')
@@ -36,18 +38,20 @@ parseHandler p contents = case parseDone p contents of
  -- Partial _      -> not possible because of feed
     Fail "" _ _    -> throw $ ParseError 0 "Debuging Required"
     Fail left ps p ->
-        let totalLineno = length $ B.lines contents
-            unparsed = B.lines left
+        let totalLineno = length $ B8.lines contents
+            unparsed = B8.lines left
             lineAfterError = "... " `B.append` head unparsed
             unparsedLineno = totalLineno - length unparsed + 1
         in throw $ ParseError unparsedLineno lineAfterError
-    where parseDone p c = feed (parse p c) B.empty
+
+parseDone :: Parser a -> ByteString -> IResult ByteString a
+parseDone p c = feed (parse p c) B.empty
 
 
 -- | Match SIC object format. Parsed 'Object' body never be empty
 object :: Parser Object
 object = do
-    name  <- "H" *> P.take 6
+    name  <- "H" *> fmap strip (P.take 6)
     start <- word
     len   <- word <* endOfLine
     body  <- textrc `sepBy1` endOfLine
@@ -56,17 +60,18 @@ object = do
     option () endOfLine *> endOfInput
     return $ Object name start boot len body
   <?> "newline mismatch"
+    where strip = B8.takeWhile (not.isSpace)
 
 -- | Match a line of text records in SIC object format.
 -- Parsed 'TextRecord' contents never be empty.
 textrc :: Parser TextRecord
 textrc = do
-   char 'T'
-   start <- word -- Address
-   len <- byte -- Int
-   objs <- count len byte <?> show len ++ " bytes in text"-- Word8
+    char 'T'
+    start <- word -- Address
+    len <- byte -- Int
+    objs <- count len byte <?> show len ++ " bytes in text"-- Word8
            -- ensures size of textrecord
-   return $ TextRecord start objs
+    return $ TextRecord start objs
 
 -- | Match hexrepresentation of a word which is in 6 characters long.
 --

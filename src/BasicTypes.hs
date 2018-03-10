@@ -10,10 +10,11 @@ module BasicTypes
     (
     -- * Data Types
     -- $datatypes
-      Byte()
-    , Word()
-    , FWord()
-    , Address()
+      Byte
+    , Word
+    , FWord
+    , Address
+    , Length
 
     -- * Data accessors
     -- ** Extending Bits module
@@ -41,25 +42,18 @@ import Data.List (unfoldr)
 -- They will be altered soon.
 
 -- | A byte in SIC/XE is 8 bits long.
--- 'Byte'@ is defined with a compatible data type.
 type Byte = Word8
 
 -- | A word in SIC/XE is 24 bits long.
--- 'Word' is defined with a compatible data type.
-newtype Word = Word Word32 deriving (
-    Read, Show, Eq, Num, Ord,
-    Real, Enum, Integral, Bits,
-    PrintfArg)
+type Word = Word32
 
 -- | Floating point number is represented with 48 bits in SIC/XE.
--- 'FWord' is defined with a compatible data type.
-newtype FWord = FWord Word64 deriving (
-    Read, Show, Eq, Num, Ord,
-    Real, Enum, Integral, Bits)
+type FWord = Word64
 
 -- | SIC/XE is capable of 2^15 bytes of memory.
--- 'Address' is defined with a compatible type.
-type Address = Word
+type Address = Word32
+
+type Length = Word32
 
 
 ----------------------------------------------------------------------

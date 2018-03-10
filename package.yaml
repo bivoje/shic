@@ -68,3 +68,6 @@ tests:
     dependencies:
     - shic
     - hspec
+    - QuickCheck
+    - monad-extras
+    # - simplecheck -- https://www.mail-archive.com/haskell@haskell.org/msg19215.html
