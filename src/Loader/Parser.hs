@@ -44,17 +44,20 @@ parseHandler p contents = case parseDone p contents of
             unparsedLineno = totalLineno - length unparsed + 1
         in throw $ ParseError unparsedLineno lineAfterError
 
+
+-- | @parseDone p str@ evaluates parser @p@ on @str@ as it is whole.
+-- It will never return 'Partial' result.
 parseDone :: Parser a -> ByteString -> IResult ByteString a
 parseDone p c = feed (parse p c) B.empty
 
 
--- | Match SIC object format. Parsed 'Object' body never be empty
+-- | Match SIC object file format.
 object :: Parser Object
 object = do
     name  <- "H" *> fmap strip (P.take 6)
     start <- word
     len   <- word <* endOfLine
-    body  <- textrc `sepBy1` endOfLine
+    body  <- textrc `sepBy` endOfLine
     endOfLine
     boot  <- "E" *> word
     option () endOfLine *> endOfInput
@@ -63,7 +66,6 @@ object = do
     where strip = B8.takeWhile (not.isSpace)
 
 -- | Match a line of text records in SIC object format.
--- Parsed 'TextRecord' contents never be empty.
 textrc :: Parser TextRecord
 textrc = do
     char 'T'

@@ -9,10 +9,14 @@ import BasicTypes
 
 
 spec :: Spec
-spec = do
-  describe "Nothing" $ do
-    it "goes well" $ do
-      1 `shouldBe` 1
+spec = it "pass" $ 1 `shouldBe` 1
+
+
+----------------------------------------------------------------------
+-- * Validity Checkers
+
+-- $validityCheckers
+-- checks if variable of basic type is in valid range.
 
 check_byte :: Byte -> Bool
 check_byte byte = byte <= 0xFF
@@ -26,14 +30,23 @@ check_fword fword = fword <= 0xFFFFFFFFFFFF
 check_address :: Address -> Bool
 check_address address = address <= 0x7FFF
 
-genWord :: Gen Word
-genWord = choose (0, 0xFFFFFF)
 
-newtype GAddress = GAddress Address
+----------------------------------------------------------------------
+-- * Generators
+
+-- $generators
+-- basic type generators
+
+newtype GWord = GWord { wordOf :: Word }
+instance Arbitrary GWord where
+    arbitrary = GWord <$> choose (0, 0xFFFFFF)
+
+genWord :: Gen Word
+genWord = wordOf <$> arbitrary
+
+newtype GAddress = GAddress { addrOf :: Address }
 instance Arbitrary GAddress where
     arbitrary = GAddress <$> choose (0, 0xFFFFFF)
 
 genAddress :: Gen Address
-genAddress = do
-    GAddress addr <- arbitrary
-    return addr
+genAddress = addrOf <$> arbitrary

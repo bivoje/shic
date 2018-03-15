@@ -19,11 +19,14 @@ import Loader.Types
 import Loader.Parser
 
 
-loader :: ByteString -> Memory -> (Memory, Address)
+-- | Load SIC object to given memory.
+loader :: ByteString        -- ^ SIC object file content to load on memry.
+       -> Memory            -- ^ Memory to load object file on.
+       -> (Memory, Address) -- ^ Resulting memry and the booting address.
 loader contents mem = flip loadObj mem $ parseHandler object contents
 
--- | Load text records in object to given memory. If two of the text
--- records overap, it rasises 'TextRecordOverlap'.
+-- | Load each text record in object to given memory.
+-- If two of the text records overap, it rasises 'TextRecordOverlap'.
 loadObj :: Object -> Memory -> (Memory, Address)
 loadObj obj@(Object _ _ boot _ texts) mem
     | not $ checkTextOverlap obj = throw TextRecordOverlap
@@ -37,7 +40,7 @@ loadTextrc (TextRecord start bytes) mem = setBytes start bytes mem
 -- overlapps each other.
 checkTextOverlap :: Object -> Bool
 checkTextOverlap (Object _ _ _ _ ts) =
-    let segs = sort $ map (\(TextRecord s ls) ->
-                                (fromIntegral s, length ls)) ts
+    let segs = (0, 0) : (sort . map refine) ts
     in and $ zipWith (\(s1,l1) (s2,_) -> s1+l1 <= s2) segs (tail segs)
-    -- ts will never be empty -> tail always succeed
+    -- segs will never be empty -> tail always succeed
+    where refine (TextRecord s ls) = (fromIntegral s, length ls)

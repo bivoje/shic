@@ -79,7 +79,7 @@ hexNumber = "X'" *> hexadecimal <* "'"
 -- * Assembly Parsers
 
 {- $syntax
-    Following is sample SIC code to be used in explanation.
+Following is sample SIC code to be used in explanation.
 
 > CNT     START   256
 >
@@ -344,11 +344,14 @@ symbolName =
     in check' (\bs -> B.length bs <= 6) p "too long symbol name"
 -- FIXME, what if empty?
 
+-- Parse an sic byte & check being in range.
 byte :: (Integral a, Bits a) => Parser a
 byte = check' (<= 0xFF) number "too large byte"
 
+-- Parse an sic word & check being in range.
 word :: (Integral a, Bits a) => Parser a
 word = check' (<= 0xFFFFFF) number "too large word"
 
+-- Parse an sic address & check being in range.
 address :: (Integral a, Bits a) => Parser a
 address = check' (<= 0x7FFF) number "too large address"

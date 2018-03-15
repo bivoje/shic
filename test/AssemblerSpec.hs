@@ -51,17 +51,19 @@ spec = do
       property prop_dumpTextRecord_rev
   describe "dumpObject" $ do
     it "is reverse of Loader.Parser.object" $ do
-      property prop_dumpObject_rev
+      forAll genObjectLikely prop_dumpObject_rev
   describe "assemble parser" $ do
     it "parse SIC assembly code" $ do
       let si = si' "sample4.asm" "sample4.obj"
       assembler `si` id
 
+-- | 'object' parser should be reverse of 'dumpObject'.
 prop_dumpObject_rev :: Object -> Bool
 prop_dumpObject_rev obj =
     let res = parseDone object (dumpObject obj)
      in P.compareResults res (P.Done B.empty obj) == Just True
 
+-- | 'textrc' parser should be reverse of 'dumpTextRecord'.
 prop_dumpTextRecord_rev :: TextRecord -> Bool
 prop_dumpTextRecord_rev tr =
     let res = parseDone textrc (dumpTextRecord tr)
@@ -73,7 +75,7 @@ testState stt = let (a,st) = runState stt $ ST 0 empty
 
 --test_prop_trsTarget :: Property
 --test_prop_trsTarget = forAll genPair $ uncurry prop_trsTarget
---    where genPair = genST >>= \st ->
+--    where genPair = arbitrary >>= \st ->
 --              liftArbitrary2 (return st) (genTarget st)
 
 --prop_trsTarget :: ST -> Target -> Bool
@@ -81,11 +83,12 @@ testState stt = let (a,st) = runState stt $ ST 0 empty
 --    let (word, st') = runState (translateTarget tar) st
 --     in st == st' && check_address word
 --
+
 test_prop_trsCommand :: Property
 test_prop_trsCommand =
     forAll genTri $ uncurry . uncurry $ prop_trsCommand
     where genTri :: Gen ((ST, Opcode), Operand)
-          genTri = genST >>= \st -> liftArbitrary2
+          genTri = arbitrary >>= \st -> liftArbitrary2
               (liftArbitrary2 (return st) arbitrary)
               (genOperand st)
 
@@ -99,7 +102,7 @@ test_prop_collectSize =
     forAll genPair $ uncurry prop_collectSize
     where genPair = liftArbitrary2
               (choose (0, 10000))
-              (resize 500 (listOf1 arbitrary))
+              (resize 500 (listOf1 genResultLikely))
 
 prop_collectSize :: Word -> [Result] -> Bool
 prop_collectSize start rs =

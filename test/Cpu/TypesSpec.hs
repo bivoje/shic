@@ -8,10 +8,7 @@ import Cpu.Types
 
 
 spec :: Spec
-spec = do
-  describe "Nothing" $ do
-    it "goes well" $ do
-      1 `shouldBe` 1
+spec = it "pass" $ 1 `shouldBe` 1
 
 instance Arbitrary Opcode where
     arbitrary = elements
