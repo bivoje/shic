@@ -1,5 +1,16 @@
 
-module Cpu.Debugger where
+module Cpu.Debugger
+    (
+    debugCpu
+    , debug
+    , debug'
+    , handleCommand
+    , execCommand
+    , dumpMemory
+    , printMemory
+    , dumpRegister
+    , dumpInstr
+    ) where
 
 
 import Prelude hiding (Word)
@@ -35,7 +46,7 @@ debug' st@(ST mem reg dev) = do
     word <- lift $ evalStateT fetch st
     let (opcode, x, ta') = decode word
     let ta = ta' + (if x then 0 else 1)
-    mps <- gets $ ins pcv .  ins ta . _memPicks
+    mps <- gets $ insertMP pcv .  insertMP ta . _memPicks
     lift $ do
         printf "\n"
         dumpRegister reg
@@ -43,7 +54,6 @@ debug' st@(ST mem reg dev) = do
         dumpInstr pcv word
         printf "cmd: "
     handleCommand
-    where ins a = S.insert (refineAddr a)
 
 handleCommand :: StateT Info IO ()
 handleCommand = do
@@ -90,3 +100,7 @@ dumpInstr pc word =
     let (op, x, addr) = decode word
     in printf "Instruction =====\n  (%06X) %06X =  %s %c %04X\n"
               pc word (show op) (if x then 'x' else ' ') addr
+
+-- Reimplementation of whileM of Control.Monad.Extra in extra package.
+whileM_ :: Monad m => m Bool -> m ()
+whileM_ act = act >>= \b -> when b $ whileM_ act

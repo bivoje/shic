@@ -15,8 +15,8 @@ data InvalidObject
 
 instance Exception InvalidObject
 
-data TextRecord = TextRecord Address [Byte] deriving Show
+data TextRecord = TextRecord Address [Byte] deriving (Show, Eq)
 
-data Object = Object ByteString Address Address Int [TextRecord]
+data Object = Object ByteString Address Address Length [TextRecord]
 --                   name       start   boot    length body
-     deriving Show
+     deriving (Show, Eq)

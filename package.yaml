@@ -1,0 +1,73 @@
+name:                shic
+version:             0.1.0.0
+github:              "bivoje/shic"
+license:             BSD3
+author:              "bivoje"
+maintainer:          "bivoje49@gist.ac.kr"
+copyright:           "MIT License"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+synopsis:            SIC/XE assembler & emulator developed in haskell
+category:            Compilers/Interpreters
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on Github at <https://github.com/bivoje/shic#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- bytestring
+- vector
+- containers
+- unordered-containers
+- hashable
+- lens
+- mtl
+- transformers
+- attoparsec
+
+library:
+  source-dirs: src
+
+executables:
+    shic-exe:
+      main:                Main.hs
+      source-dirs:         app
+      ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+      dependencies:
+      - shic
+
+#  assemble:
+#    main-is:             Assemble.hs
+#    source-dirs:         app
+#    ghc-options:
+#    - -threaded
+#    - -rtsopts
+#    - -with-rtsopts=-N
+#    dependencies:
+#    - shic
+# haskell executable should be Main module exporting 'main' function.
+# https://stackoverflow.com/questions/14238729/producing-multiple-executables-from-single-project
+
+tests:
+  shic-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - shic
+    - hspec
+    - QuickCheck
+    - monad-extras
+    # - simplecheck -- https://www.mail-archive.com/haskell@haskell.org/msg19215.html

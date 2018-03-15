@@ -11,6 +11,7 @@ import qualified Data.Set as S
 import BasicTypes
 
 
+-- | Debugger runtime state.
 data Info = Info
     { _memPicks :: Set Address
     } deriving Show
