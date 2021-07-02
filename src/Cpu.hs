@@ -87,19 +87,29 @@ execute opcode addr = case opcode of
         modify $ over memory (setByte addr ch)
     STSW -> storeR sw
     RD -> do
-        d   <- gets $ getByte addr . view memory
-        dev <- gets $ ($ d) . view device
-        ch  <- lift $ readByte dev
+        d <- gets $ getByte addr . view memory
+        dev <- getD d
+        (ch, ndev) <- lift $ readDev dev
         let wch = lowBits 8 ch
         modify $ setR a wch
+        setD d ndev
     WD -> do
-        d   <- gets $ getByte addr . view memory
-        dev <- gets $ ($ d) . view device
+        d <- gets $ getByte addr . view memory
+        dev <- getD d
         wch <- gets $ viewR a
         let ch = lowBits 8 wch
-        lift $ writeByte dev ch
-    TD -> modify $ setR sw 0x80 -- always good to go
+        ndev <- lift $ writeDev ch dev
+        setD d ndev
+    TD -> do
+        d <- gets $ getByte addr . view memory
+        dev <- getD d
+        succ <- lift $ testDev dev
+        let ret = if succ then 0x80 else 0x00
+        modify $ setR sw ret
   where
+    faild = Device FailIn FailOut
+    getD d = gets $ (H.lookupDefault faild d) . view device
+    setD d dev = modify $ set (device.at d) (Just dev)
     getM = gets $ getWord addr . view memory
     storeM word = modify $ over memory (setWord addr word)
     getR reg = gets $ viewR reg

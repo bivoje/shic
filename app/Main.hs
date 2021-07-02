@@ -27,7 +27,8 @@ main = do
     runAssembler "sample4.asm"
     let clean_mem = fixedMemory 2000
     (mem, pcv) <- runLoader "sample4.obj" clean_mem
-    let st = setR pc pcv $ cpuState mem emptyRegister []
+    let ds = [(6, Device NullIn (Dump "dev6"))]
+    let st = setR pc pcv $ cpuState mem emptyRegister ds
     (ST mem reg _) <- runCpu st
     --(ST mem reg _) <- debugCpu st
     print mem

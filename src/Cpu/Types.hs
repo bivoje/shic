@@ -51,12 +51,15 @@ module Cpu.Types
     , sw
 
     -- * Device
-    , Device()
+    , Device(..)
+    , DevIn(..)
+    , DevOut(..)
     -- TODO CREAT DEVICE
 
     -- ** device IO
-    , readByte
-    , writeByte
+    , testDev
+    , readDev
+    , writeDev
 
     -- * Exceptions
     , InvalidOpcode(..)
@@ -69,17 +72,22 @@ import Prelude hiding (Word)
 
 import GHC.Generics (Generic)
 
-import System.IO (Handle, stdin, stdout)
+import Foreign.Storable (peek)
+import Foreign.Marshal.Utils (new)
+import Foreign.Marshal.Alloc (alloca)
+import System.IO (stdin, stdout, hPutBuf, hGetBuf)
 import Data.Vector (Vector)
+import Data.Char (chr)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import Data.Maybe (fromJust)
 import Data.Bits
 import Data.Hashable (Hashable)
 import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict as H
+import qualified Data.HashMap.Strict as H
 import Control.Exception
 import Control.Lens
+import Numeric (showHex)
 
 import BasicTypes
 
@@ -120,14 +128,30 @@ data Register = Register
     -}
     } deriving (Show, Eq)
 
+
 -- | In-N-Out device for SIC machine.
-data Device = Device Handle Handle
+data Device = Device DevIn DevOut
+
+-- | Read controler for a machine
+data DevIn
+    = FailIn -- ^ Always fail, results in 0 when read
+    | NullIn -- ^ Always success, results in 0 when read
+    | ForwardIn -- ^ Forward stdin to this device.
+    | Tucked [Byte] -- ^ Provide bytes from given list, starting from head.
+
+-- | Write controler for a machine
+data DevOut
+    = FailOut -- ^ Always fail, nothing happens when written
+    | NullOut -- ^ Always success, nothing happens when written
+    | ForwardOut -- ^ Forward written bytes to stdout.
+    | Dump String -- ^ Report written bytes to stdout in hexadecimal form with device name indicator.
+
 
 -- | State for cpu running.
 data ST = ST
     { _memory   :: Memory
     , _register :: Register
-    , _device   :: Byte -> Device
+    , _device   :: HashMap Byte Device
     }
 
 makeLenses ''ST
@@ -311,13 +335,52 @@ setFWord addr fword = setBytes addr (decomposeBottom 6 8 fword)
 ----------------------------------------------------------------------
 -- device IO
 
+-- Test given device. Fails if either of in/out controller fails.
+testDev :: Device -> IO Bool
+testDev (Device FailIn _) = return False
+testDev (Device _ FailOut) = return False
+testDev _ = return True
+
+-- Read a byte from a read controller.
+readByte :: DevIn -> IO (Byte, DevIn)
+readByte FailIn = return (0, FailIn)
+readByte NullIn = return (0, NullIn)
+readByte ForwardIn = do
+    b <- alloca (\pb -> do
+        n <- hGetBuf stdin pb 1
+        -- FIXME what if n != 1
+        peek pb)
+    return (b, ForwardIn)
+--readByte (Device h _) = B.head <$> B.hGet h 1
+readByte (Tucked [ ]) = return (0, NullIn)
+readByte (Tucked [b]) = return (b, NullIn)
+readByte (Tucked (b:s)) = return (b, Tucked s)
+
+-- Write a byte to a write controller.
+writeByte :: Byte -> DevOut -> IO DevOut
+writeByte _ FailOut = return FailOut
+writeByte _ NullOut = return NullOut
+writeByte b ForwardOut = do
+    pb <- new b
+    hPutBuf stdout pb 1
+    return ForwardOut
+--writeByte (Device _ od) b = B.hPut h $ B.singleton b
+writeByte b d@(Dump devname) = (putStrLn $
+    "Device " ++ devname ++ ": Byte 0x" ++
+    showHex b " '" ++ [chr (lowBits 8 b)] ++
+    "' is written") >> return d
+
 -- | @readByte dev@ reads a @byte@ to the @device@.
-readByte :: Device -> IO Byte
-readByte (Device h _) = B.head <$> B.hGet h 1
+readDev :: Device -> IO (Byte, Device)
+readDev (Device id od) = do
+    (b, id) <- readByte id
+    return (b, Device id od)
 
 -- | @writeByte dev byte@ write a @byte@ to the @device@.
-writeByte :: Device -> Byte -> IO ()
-writeByte (Device _ h) b = B.hPut h $ B.singleton b
+writeDev :: Byte -> Device -> IO Device
+writeDev b (Device id od) = do
+    od <- writeByte b od
+    return (Device id od)
 
 
 ----------------------------------------------------------------------
@@ -372,5 +435,5 @@ cpuState :: Memory -> Register -> [(Byte,Device)]-> ST
 cpuState mem reg ds = ST
     { _memory   = mem
     , _register = reg
-    , _device   = const (Device stdin stdout)
+    , _device   = H.fromList ds
     }

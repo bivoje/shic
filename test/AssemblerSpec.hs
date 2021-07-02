@@ -10,7 +10,7 @@ import qualified Data.Attoparsec.ByteString as P
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Data.ByteString.Char8 (pack)
-import Data.HashMap.Strict
+import Data.HashMap.Strict hiding (foldl)
 import Control.Monad.State
 import Control.Monad.Extra (iterateM)
 import Control.Exception (evaluate)
