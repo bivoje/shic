@@ -45,7 +45,7 @@ fetch = do
 -- | Decode given instruction bytecode.
 decode :: Word -> (Opcode, Bool, Address)
 decode word =
-    let x = (1 ==) $ (word `shiftL` 15) .&. 0x1
+    let x = (1 ==) $ (word `shiftR` 15) .&. 0x1
         ta = fromIntegral $ word .&. 0x7FFF
     in case fromOp $ lowBits 8 (word `shiftR` 16) of
         Just opcode -> (opcode, x, ta)

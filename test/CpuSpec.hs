@@ -10,6 +10,7 @@ import Loader (loader)
 import Data.ByteString (ByteString)
 import Data.ByteString as B
 import Data.Vector as V
+import Control.Monad (join)
 
 main :: IO ()
 main = hspec spec
@@ -18,7 +19,7 @@ spec :: Spec
 spec = do
   describe "assemble parser" $ do
     it "parse SIC assembly code" $ do
-      comp `shouldReturn` True
+     join $ shouldBe <$> go <*> sample
 
 comp :: IO Bool
 comp = do
@@ -40,5 +41,5 @@ sample = do
     obj <- B.readFile "test/memory4.dump"
     let clean_mem = fixedMemory 350
     let (mem, _) = loader obj clean_mem
-    let reg = Register {_a = 0, _x = 0, _l = 0, _pc = 329, _sw = 128}
+    let reg = Register {_a = 0, _x = 0, _l = 0, _pc = 341, _sw = 0}
     return (mem, reg)
