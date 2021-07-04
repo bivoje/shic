@@ -35,9 +35,18 @@ library:
   source-dirs: src
 
 executables:
-    shic-exe:
+    shic-emul:
       main:                Main.hs
-      source-dirs:         app
+      source-dirs:         app/Emulator
+      ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+      dependencies:
+      - shic
+    shic-dbg:
+      main:                Debugger.hs
+      source-dirs:         app/Debugger
       ghc-options:
       - -threaded
       - -rtsopts

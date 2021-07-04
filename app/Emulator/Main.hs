@@ -10,7 +10,6 @@ import Loader
 
 import Cpu
 import Cpu.Types
-import Cpu.Debugger
 
 runAssembler :: FilePath -> IO ()
 runAssembler filepath = do
@@ -30,7 +29,6 @@ main = do
     let ds = [(6, Device NullIn (Dump "dev6"))]
     let st = setR pc pcv $ cpuState mem emptyRegister ds
     (ST mem reg _) <- runCpu st
-    --(ST mem reg _) <- debugCpu st
     print mem
     print reg
     return ()
