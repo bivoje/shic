@@ -1,9 +1,8 @@
 
 module Cpu.Debugger
-    (
-    debugCpu
-    , debug
-    , debug'
+    ( debugCpu
+    , interactive
+    , interactive'
     , handleCommand
     , execCommand
     , dumpMemory
@@ -25,23 +24,59 @@ import Control.Lens hiding (Empty)
 import Data.Functor.Identity (runIdentity)
 import Text.Printf (printf)
 
+import System.IO (stdout, hFlush)
+
 import Cpu.Debugger.Types
 import Cpu.Debugger.Parser
 import Cpu.Types
 import Cpu
 
-
 debugCpu :: ST -> IO ST
 debugCpu st =
-    let info = execStateT (whileM_ $ debug >> lift' run) st
+    let info = execStateT (whileM_ $ go Stop) st
      in evalStateT info $ Info S.empty
-     where lift' = mapStateT lift
 
-debug :: StateT ST (StateT Info IO) ()
-debug = get >>= lift . debug'
 
-debug' :: ST -> StateT Info IO ()
-debug' st@(ST mem reg dev) = do
+go :: GoSign -> StateT ST (StateT Info IO) Bool
+go gosign = case gosign of
+    Quit -> return False
+    Term -> return False -- TODO enable re-run
+    _ -> do
+        gs <- go' gosign
+        st <- get
+        go $ adaptGoSign st gs
+
+adaptGoSign :: ST -> GoSign -> GoSign
+adaptGoSign st gs =
+    case gs of
+        Quit -> Quit
+        Term -> Term
+        Stop -> Stop
+        CountDown 0 -> Stop
+        CountDown n -> CountDown (n-1)
+        EqWReg b rid x -> do
+            let r = ridconv rid . _register $ st
+            if b `xor` (r == x) then gs else Stop
+    where ridconv rid = case rid of
+            0 -> _a
+            1 -> _x
+            2 -> _l
+            8 -> _pc
+            9 -> _sw
+
+
+go' :: GoSign -> StateT ST (StateT Info IO) GoSign
+go' gosign = if gosign == Stop
+         then interactive
+         else cpuStep
+   where cpuStep = lift' run <&> \b -> if b then gosign else Term
+         lift' = mapStateT lift
+
+interactive :: StateT ST (StateT Info IO) GoSign
+interactive = get >>= lift . interactive'
+
+interactive' :: ST -> StateT Info IO GoSign
+interactive' st@(ST mem reg dev) = do
     let pcv = _pc reg
     word <- lift $ evalStateT fetch st
     let (opcode, x, ta') = decode word
@@ -52,21 +87,31 @@ debug' st@(ST mem reg dev) = do
         dumpRegister reg
         dumpMemory mps mem
         dumpInstr pcv word
+    handleCommand st
+
+handleCommand :: ST -> StateT Info IO GoSign
+handleCommand st = do
+    line <- lift $ do
         printf "cmd: "
-    handleCommand
-
-handleCommand :: StateT Info IO ()
-handleCommand = do
-    line <- lift $ getLine
+        hFlush stdout
+        getLine
     case parse line of
-        Just cmd -> execCommand cmd
-        Nothing -> lift $ printf "command parsing failed\n"
+        Just cmd -> execCommand st cmd
+        Nothing -> do
+            lift $ printf "command parsing failed\n"
+            handleCommand st
 
-execCommand :: Command -> StateT Info IO ()
-execCommand Empty = return ()
-execCommand (Mempick b addr) =
+execCommand :: ST -> Command -> StateT Info IO GoSign
+execCommand st Empty = return Stop
+execCommand st Exit = return Quit
+execCommand st (Step n) = return $ CountDown n
+execCommand st (BreakAt Nothing) =
+    return . EqWReg True 8 . _pc . _register $ st
+execCommand st (BreakAt (Just x)) = return $ EqWReg True 8 x
+execCommand st (WatchWReg b r x) = return $ EqWReg b r x
+execCommand st (Mempick b addr) =
     let f = if b then insertMP else deleteMP
-    in modify $ over memPicks (f addr)
+    in (modify $ over memPicks (f addr)) >> return Stop
 
 dumpMemory :: Set Address -> Memory -> IO ()
 dumpMemory addrs' mem = do
