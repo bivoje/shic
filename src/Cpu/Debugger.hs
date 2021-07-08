@@ -31,12 +31,15 @@ import Cpu.Debugger.Parser
 import Cpu.Types
 import Cpu
 
+
+-- | Analogue to runCpu. Runs a debugger.
 debugCpu :: ST -> IO ST
 debugCpu st =
     let info = execStateT (whileM_ $ go Stop) st
      in evalStateT info $ Info S.empty
 
-
+-- | Iteratively call to go'
+-- | until it stops, meet breakpoints or terminates.
 go :: GoSign -> StateT ST (StateT Info IO) Bool
 go gosign = case gosign of
     Quit -> return False
@@ -46,6 +49,8 @@ go gosign = case gosign of
         st <- get
         go $ adaptGoSign st gs
 
+-- | Modify GoSign according to ST.
+-- | Mostly, controls breakpoint condition
 adaptGoSign :: ST -> GoSign -> GoSign
 adaptGoSign st gs =
     case gs of
@@ -64,7 +69,9 @@ adaptGoSign st gs =
             8 -> _pc
             9 -> _sw
 
-
+-- | One round of debugger run.
+-- | It is either an execution of an instruction
+-- | or a user command prompt.
 go' :: GoSign -> StateT ST (StateT Info IO) GoSign
 go' gosign = if gosign == Stop
          then interactive
@@ -72,9 +79,12 @@ go' gosign = if gosign == Stop
    where cpuStep = lift' run <&> \b -> if b then gosign else Term
          lift' = mapStateT lift
 
+-- | Shows status dump and user command prompt
+-- | then handles given command.
 interactive :: StateT ST (StateT Info IO) GoSign
 interactive = get >>= lift . interactive'
 
+-- | Actual doing of interactive
 interactive' :: ST -> StateT Info IO GoSign
 interactive' st@(ST mem reg dev) = do
     let pcv = _pc reg
@@ -89,6 +99,7 @@ interactive' st@(ST mem reg dev) = do
         dumpInstr pcv word
     handleCommand st
 
+-- | Prompt, parse, execute user command
 handleCommand :: ST -> StateT Info IO GoSign
 handleCommand st = do
     line <- lift $ do
