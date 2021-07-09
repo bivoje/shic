@@ -77,7 +77,7 @@ import Foreign.Marshal.Utils (new)
 import Foreign.Marshal.Alloc (alloca)
 import System.IO (stdin, stdout, hPutBuf, hGetBuf)
 import Data.Vector (Vector)
-import Data.Char (chr)
+import Data.Char (chr, isPrint)
 import qualified Data.Vector as V
 import qualified Data.ByteString as B
 import Data.Maybe (fromJust)
@@ -130,7 +130,7 @@ data Register = Register
 
 
 -- | In-N-Out device for SIC machine.
-data Device = Device DevIn DevOut
+data Device = Device DevIn DevOut deriving Read
 
 -- | Read controler for a machine
 data DevIn
@@ -138,6 +138,7 @@ data DevIn
     | NullIn -- ^ Always success, results in 0 when read
     | ForwardIn -- ^ Forward stdin to this device.
     | Tucked [Byte] -- ^ Provide bytes from given list, starting from head.
+    deriving Read
 
 -- | Write controler for a machine
 data DevOut
@@ -145,6 +146,7 @@ data DevOut
     | NullOut -- ^ Always success, nothing happens when written
     | ForwardOut -- ^ Forward written bytes to stdout.
     | Dump String -- ^ Report written bytes to stdout in hexadecimal form with device name indicator.
+    deriving Read
 
 
 -- | State for cpu running.
@@ -367,8 +369,10 @@ writeByte b ForwardOut = do
 --writeByte (Device _ od) b = B.hPut h $ B.singleton b
 writeByte b d@(Dump devname) = (putStrLn $
     "Device " ++ devname ++ ": Byte 0x" ++
-    showHex b " '" ++ [chr (lowBits 8 b)] ++
+    showHex b " '" ++ [hex2chr b] ++
     "' is written") >> return d
+    where hex2chr b = let c = chr (lowBits 8 b)
+                       in if isPrint c then c else chr 0
 
 -- | @readByte dev@ reads a @byte@ to the @device@.
 readDev :: Device -> IO (Byte, Device)
