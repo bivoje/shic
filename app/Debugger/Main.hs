@@ -12,7 +12,8 @@ import Control.Lens ((<&>))
 import Loader
 import Cpu
 import Cpu.Types
-
+import Cpu.Debugger
+import Assembler (assembler)
 
 runLoader :: FilePath -> Memory -> IO (Memory, Address)
 runLoader filepath mem = flip loader mem <$> B.readFile filepath
@@ -29,7 +30,7 @@ main = do
     (fpsrc, smems, mfpdev) <- case args of
         [a,b] -> putStrLn "using default devices..." >> return (a, b, Nothing)
         [a,b,c] -> return (a, b, Just c)
-        _ -> fail "Usage: shic-emul <src.obj> <memsize in bytes> [<device spec file>]"
+        _ -> fail "Usage: shic-dgb <src.obj> <memsize in bytes> [<device spec file>]"
     mems <- case reads smems of
         [(i,"")] -> return i
         _ -> fail "memsize is size of memory in bytes, must be integer"
@@ -38,4 +39,6 @@ main = do
     let clean_mem = fixedMemory mems
     (mem, pcv) <- runLoader fpsrc clean_mem
     let st = setR pc pcv $ cpuState mem emptyRegister ds
-    void $ runCpu st 
+    (ST mem reg _) <- debugCpu st 
+    print mem
+    print reg

@@ -17,13 +17,12 @@ module Loader.Parser
 import Data.Attoparsec.ByteString as P
 import Data.Attoparsec.ByteString.Char8 (char, endOfLine)
 import Data.Bits
+import Data.List (foldl')
 import Data.Char (isSpace)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as B8
-
 import Control.Exception (throw)
-import Data.List (foldl')
 
 import Loader.Types
 

@@ -35,36 +35,37 @@ library:
   source-dirs: src
 
 executables:
+    shic-asm:
+      main:                Main.hs
+      source-dirs:         app/Assembler
+      ghc-options:
+      - -Wall
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+      dependencies:
+      - shic
     shic-emul:
       main:                Main.hs
       source-dirs:         app/Emulator
       ghc-options:
+      - -Wall
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
       dependencies:
       - shic
     shic-dbg:
-      main:                Debugger.hs
+      main:                Main.hs
       source-dirs:         app/Debugger
       ghc-options:
+      - -Wall
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
       dependencies:
       - shic
 
-#  assemble:
-#    main-is:             Assemble.hs
-#    source-dirs:         app
-#    ghc-options:
-#    - -threaded
-#    - -rtsopts
-#    - -with-rtsopts=-N
-#    dependencies:
-#    - shic
-# haskell executable should be Main module exporting 'main' function.
-# https://stackoverflow.com/questions/14238729/producing-multiple-executables-from-single-project
 
 tests:
   shic-test:

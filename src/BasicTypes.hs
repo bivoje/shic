@@ -144,4 +144,3 @@ lowBits n a =
         value = foldl f zero [0 .. n-1]
      in if check then value else undefined
     where f b i = if testBit a i then setBit b i else b
-
